@@ -4,7 +4,6 @@ import streamlit
 import streamlit as st
 import plotly.express as px
 import seaborn as sns
-import mlflow
 import json
 # import matplotlib.pyplot as plt
 import numpy as np
@@ -18,8 +17,10 @@ from sklearn.model_selection import train_test_split, KFold, RandomizedSearchCV
 from sklearn.ensemble import (RandomForestClassifier, RandomForestRegressor, AdaBoostClassifier, AdaBoostRegressor)
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.metrics import accuracy_score, confusion_matrix
-from mlflow.models import infer_signature
+from sklearn.feature_selection import VarianceThreshold
 
+from mlflow.models import infer_signature
+import mlflow
 st.set_page_config(layout="wide", page_title="Copper Set Modelling Machine Learning Task")
 # st.container()
 
@@ -212,7 +213,9 @@ if task != "Select":
             # classification_data.to_csv("./classification_data.csv", index=False)
             st.plotly_chart(px.scatter(classification_data.sample(3000), x="customer", y="quantity tons",
                                        hover_data="status"), theme=None)
-
+        # With st.container():
+        #     X = classification_data.drop(labels=["status"], axis=1)
+        #     y = classification_data.loc[:, "status"]
         with st.container():
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
                         "text-align:center; cursor:pointer; line-height: 3rem; ' > "
@@ -220,14 +223,16 @@ if task != "Select":
                         unsafe_allow_html=True)
             X = classification_data.drop(labels=["status"], axis=1)
             y = classification_data.loc[:, "status"]
-            std_scaler = MinMaxScaler()
-            X.loc[:, ["customer", "country", "quantity tons", "item_year", "item_month",
-                      "item_day"]] = std_scaler.fit_transform(X[["customer", "country", "quantity tons",
-                                                                 "item_year", "item_month", "item_day"]])
+            min_max_scaler = MinMaxScaler()
+            X[X.columns.tolist()] = min_max_scaler.fit_transform(X)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
             X_train["status"] = y_train
             X_test["status"] = y_test
-            st.table(X)
+            data_count_cols = st.columns(2, vertical_alignment="center")
+            with data_count_cols[0]:
+                st.markdown("<h5> Training Data Count is " + str(X_train.shape[0]) + " </h5>", unsafe_allow_html=True)
+            with data_count_cols[1]:
+                st.markdown("<h5> Testing Data Count is " + str(X_test.shape[0]) + " </h5>", unsafe_allow_html=True)
             if not os.path.exists("./classification"):
                 os.makedirs("classification")
             if os.path.exists("./classification/training_data.csv"):
@@ -342,13 +347,13 @@ if task != "Select":
                         unsafe_allow_html=True)
             regression_data = data.loc[:, ["item type", "application", "thickness", "width", "material_ref",
                                            "product_ref", "delivery date", "selling_price"]]
-            st.table(regression_data.head(10))
+            st.dataframe(regression_data.head(10), use_container_width=True)
         with st.container():
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
                         "text-align:center; cursor:pointer; line-height: 3rem; ' > Show Missing & Nan Count </p>",
                         unsafe_allow_html=True)
             regression_data.drop_duplicates(inplace=True, keep="first")
-            st.table(regression_data.isnull().sum())
+            st.dataframe(regression_data.isnull().sum(), use_container_width=True)
         with st.container():
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
                         "text-align:center; cursor:pointer; line-height: 3rem; ' > Handle Missing Values </p>",
@@ -368,7 +373,7 @@ if task != "Select":
                 6, 8).astype(int)
             regression_data = regression_data[~(regression_data["delivery_date_month"] == 22)]
             regression_data.drop(labels=["product_ref", "material_ref", "delivery date"], axis=1, inplace=True)
-            st.table(regression_data.head(10))
+            st.dataframe(regression_data.head(10), use_container_width=True)
         with st.container():
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
                         "text-align:center; cursor:pointer; line-height: 3rem; ' >Visualize the categorical features</p>",
@@ -384,15 +389,26 @@ if task != "Select":
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
                         "text-align:center; cursor:pointer; line-height: 3rem; ' >Handle Categorical feature</p>",
                         unsafe_allow_html=True)
-            item_type_class_encoder_dict = {j: i + 1 for i, j in regression_data[
-                "item type"].drop_duplicates().reset_index(drop=["index"]).items()}
-            regression_data["item type"] = regression_data["item type"].apply(
-                lambda x: item_type_class_encoder_dict[x])
+            # item_type_class_encoder_dict = {j: i + 1 for i, j in regression_data[
+            #     "item type"].drop_duplicates().reset_index(drop=["index"]).items()}
+            # regression_data["item type"] = regression_data["item type"].apply(
+            #     lambda x: item_type_class_encoder_dict[x])
+
+            application_dict = regression_data["application"].value_counts(normalize=True).to_dict()
+            regression_data["application"] = regression_data["application"].map(application_dict)
+
+            item_type_dict = regression_data["item type"].value_counts(normalize=True).to_dict()
+            regression_data["item type"] = regression_data["item type"].map(item_type_dict)
             if os.path.exists("./item_type.json"):
                 os.remove("./item_type.json")
             with open("./item_type.json", "w") as file:
-                file.write(json.dumps(item_type_class_encoder_dict))
-            st.table(regression_data.head(10))
+                file.write(json.dumps(item_type_dict))
+
+            if os.path.exists("./application.json"):
+                os.remove("./application.json")
+            with open("./application.json", "w") as file:
+                file.write(json.dumps(application_dict))
+            st.dataframe(regression_data.head(10), use_container_width=True)
 
         with st.container():
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
@@ -412,9 +428,10 @@ if task != "Select":
             st.text(f"skewness Of Thickness is {str(CLT_thickness_data.skew())}")
             st.plotly_chart(ff.create_distplot([CLT_thickness_data], group_labels=["Thickness"]), theme=None)
             st.text("Positive Skewness is asymmetrical distribution (mean > median > mode)")
-            st.markdown(f"<h5 style='color: red;'>check the condition for positive or right skewness (mean > median > mode) is "
-                    f"{CLT_thickness_data.mean()} > {CLT_thickness_data.median()} > "
-                    f"{stat.mode(CLT_thickness_data).mode}</h5", unsafe_allow_html=True)
+            st.markdown(f"<h5 style='color: red;'>check the condition for positive or right skewness "
+                        f"(mean > median > mode) is "
+                        f"{CLT_thickness_data.mean()} > {CLT_thickness_data.median()} > "
+                        f"{stat.mode(CLT_thickness_data).mode}</h5", unsafe_allow_html=True)
         with st.container():
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
                         "text-align:center; cursor:pointer; line-height: 3rem;' > "
@@ -426,32 +443,65 @@ if task != "Select":
             st.markdown("<h5> Box Plot </h5>", unsafe_allow_html=True)
             st.plotly_chart(px.box(regression_data, x="width"), theme=None)
             st.plotly_chart(px.box(regression_data, x="thickness"), theme=None)
-            lower_width_limit = regression_data["width"].mean() - 3 * regression_data["width"].std()
-            upper_width_limit = regression_data["width"].mean() + 3 * regression_data["width"].std()
+            Q1 = regression_data["thickness"].quantile(0.25)
+            print("Q1 (25 % percentile)", Q1)
+            Q3 = regression_data["thickness"].quantile(0.75)
+            print("Q3 (75 % percentile)", Q3)
+            IQR = Q3 - Q1
+            lower_bound_thickness = Q1 - 1.5 * IQR
+            upper_bound_thickness = Q3 + 1.5 * IQR
+            print("lower bound", lower_bound_thickness)
+            print("upper bound", upper_bound_thickness)
+            # lower_width_limit = regression_data["width"].mean() - 3 * regression_data["width"].std()
+            # upper_width_limit = regression_data["width"].mean() + 3 * regression_data["width"].std()
 
             # Count of Width Outlier
             count_of_outlier = regression_data[
-                (regression_data["width"] < lower_width_limit) |
-                (regression_data["width"] > upper_width_limit)].shape[0]
-            st.text(f"Count Of Width Outlier is {str(count_of_outlier)}")
-            # Handling Width Outlier
-            regression_data["width"] = np.where(regression_data["width"] < lower_width_limit,
-                                                lower_width_limit,
-                                                np.where(regression_data["width"] > upper_width_limit,
-                                                         upper_width_limit, regression_data["width"]))
-
-            lower_thickness_limit = regression_data["thickness"].mean() - 3 * regression_data["thickness"].std()
-            upper_thickness_limit = regression_data["thickness"].mean() + 3 * regression_data["thickness"].std()
-            # Count of thickness Outlier
-            count_of_outlier = regression_data[
-                (regression_data["thickness"] < lower_thickness_limit) |
-                (regression_data["thickness"] > upper_thickness_limit)].shape[0]
+                (regression_data["thickness"] < lower_bound_thickness) |
+                (regression_data["thickness"] > upper_bound_thickness)].shape[0]
             st.text(f"Count Of thickness Outlier is {str(count_of_outlier)}")
+
+            # Handling Width Outlier
+            regression_data["thickness"] = (np.where(regression_data["thickness"] > upper_bound_thickness,
+                                                     upper_bound_thickness,
+                                                     np.where(regression_data["thickness"] < lower_bound_thickness,
+                                                              lower_bound_thickness, regression_data["thickness"])))
+
+            Q1 = regression_data["width"].quantile(0.25)
+            print("Q1 (25 % percentile)", Q1)
+            Q3 = regression_data["width"].quantile(0.75)
+            print("Q3 (75 % percentile)", Q3)
+            IQR = Q3 - Q1
+            lower_bound_width = Q1 - 1.5 * IQR
+            upper_bound_width = Q3 + 1.5 * IQR
+            print("lower bound", lower_bound_width)
+            print("upper bound", upper_bound_width)
+            regression_data["width"] = (np.where(regression_data["width"] > upper_bound_width,
+                                                 upper_bound_width, np.where(regression_data["width"] <
+                                                                             lower_bound_width,
+                                                                             lower_bound_width,
+                                                                             regression_data["width"])))
+
+            # regression_data[(regression_data["width"] < lower_bound) | (regression_data["width"] > upper_bound)]["width"]
+            # regression_data[(regression_data["width"] < lower_bound) | (regression_data["width"] > upper_bound)]["width"]
+            # regression_data["width"] = np.where(regression_data["width"] < lower_width_limit,
+            #                                     lower_width_limit,
+            #                                     np.where(regression_data["width"] > upper_width_limit,
+            #                                              upper_width_limit, regression_data["width"]))
+            #
+            # lower_thickness_limit = regression_data["thickness"].mean() - 3 * regression_data["thickness"].std()
+            # upper_thickness_limit = regression_data["thickness"].mean() + 3 * regression_data["thickness"].std()
+            # # Count of thickness Outlier
+            # count_of_outlier = regression_data[
+            #     (regression_data["thickness"] < lower_thickness_limit) |
+            #     (regression_data["thickness"] > upper_thickness_limit)].shape[0]
+
+            # st.text(f"Count Of thickness Outlier is {str(count_of_outlier)}")
             # Handling thickness Outlier
-            regression_data["thickness"] = np.where(regression_data["thickness"] < lower_thickness_limit,
-                                                    lower_thickness_limit,
-                                                    np.where(regression_data["thickness"] > upper_thickness_limit,
-                                                             upper_thickness_limit, regression_data["thickness"]))
+            # regression_data["thickness"] = np.where(regression_data["thickness"] < lower_thickness_limit,
+            #                                         lower_thickness_limit,
+            #                                         np.where(regression_data["thickness"] > upper_thickness_limit,
+            #                                                  upper_thickness_limit, regression_data["thickness"]))
             st.markdown("<h4> After Handling Outlier </h4>", unsafe_allow_html=True)
             st.markdown("<h5> Violin Plot </h5>", unsafe_allow_html=True)
             st.plotly_chart(px.violin(regression_data, x="width", box=True), theme=None)
@@ -463,16 +513,37 @@ if task != "Select":
             st.plotly_chart(px.imshow((regression_data.corr()), text_auto=True, height=1000), theme=None)
         with st.container():
             st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
-                        "text-align:center; cursor:pointer; line-height: 3rem; ' > Applying Transformation & "
-                        "Scaling & Split The Data</p>", unsafe_allow_html=True)
-            regression_data[["width", "thickness"]] = PowerTransformer().fit_transform(
+                        "text-align:center; cursor:pointer; line-height: 3rem; ' > Applying Power Transformation "
+                        "</p>", unsafe_allow_html=True)
+            regression_data[["width", "thickness"]] = FunctionTransformer(func=np.log1p).fit_transform(
                 regression_data[["width", "thickness"]])
+            st.dataframe(regression_data.head(10), use_container_width=True)
+        with st.container():
+            st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
+                        "text-align:center; cursor:pointer; line-height: 3rem; '> "
+                        "Feature Selection By Variance Threshold</p>", unsafe_allow_html=True)
             X = regression_data.drop(labels=["selling_price"], axis=1)
             y = regression_data["selling_price"]
+            variance_threshold = VarianceThreshold(threshold=0.3)
+            variance_threshold.fit_transform(X=X, y=y)
+            variance_threshold_df = pd.DataFrame(variance_threshold.feature_names_in_)
+            variance_threshold_df.columns = ["Columns"]
+            variance_threshold_df["Variance"] = variance_threshold.get_support()
+            variance_threshold_df["Variance"] = variance_threshold_df["Variance"].apply(
+                lambda x: "High Variance" if x else "Low Variance")
+            st.table(variance_threshold_df)
+            X = X[X.columns[variance_threshold.get_support()]]
+            st.markdown("<h5> After applying Feature Selection </h5>", unsafe_allow_html=True)
+            st.dataframe(X.head(10), use_container_width=True)
+            # regression_data = pd.concat([X, y], axis=1)
+        with st.container():
+            st.markdown("<p style='border: 1px solid red; height: 40px; border-radius:10px; "
+                        "text-align:center; cursor:pointer; line-height: 3rem; '>"
+                        "Scaling & Split The Data</p>", unsafe_allow_html=True)
             # st.text(",".join(X.columns))
-            X[["item type", "application", "thickness", "width", "delivery_date_year", "delivery_date_month",
-               "delivery_date_day"]] = MinMaxScaler().fit_transform(X)
-            st.table(pd.concat([X, y], axis=1).head(10))
+            X[X.columns.to_list()] = StandardScaler().fit_transform(X)
+            st.markdown("<h5> Scaling Data </h5>", unsafe_allow_html=True)
+            st.dataframe(pd.concat([X, y], axis=1).head(10), use_container_width=True)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
             X_train["selling_price"] = y_train
             X_test["selling_price"] = y_test
@@ -484,9 +555,11 @@ if task != "Select":
                 os.remove("./regression/testing_data.csv")
             X_train.to_csv("./regression/training_data.csv", index=False)
             X_test.to_csv("./regression/testing_data.csv", index=False)
-
-
-
+            data_count_cols = st.columns(2, vertical_alignment="center")
+            with data_count_cols[0]:
+                st.markdown("<h5> Training Data Count is " + str(X_train.shape[0]) + " </h5>", unsafe_allow_html=True)
+            with data_count_cols[1]:
+                st.markdown("<h5> Testing Data Count is " + str(X_test.shape[0]) + " </h5>", unsafe_allow_html=True)
 
 # st.plotly_chart(px.imshow(regression_data.corr(), text_auto=True))
 # # st.markdown("<h5> Showing HeatMap Chart </h5>", unsafe_allow_html=True)
